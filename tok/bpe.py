@@ -23,25 +23,28 @@ class _BPETrie:
         cur.seq = utf
         return cur
 
-    def get(self, seq: list[int]):
+    def walk(self, seq: list[int], start: int):
         cur = self
-        depth = 0
-        for c in seq:
+        i = start
+        while i < len(seq):
+            c = seq[i]
             if c in cur.children:
                 cur = cur.children[c]
-                depth += 1
+                i += 1
             else:
                 break
         while cur.token is None:
             cur = cur.parent
-            depth -= 1
-        return (cur, depth)
+            i -= 1
+        return (cur, i)
 
 
 class BPE:
     def __init__(self, bow, vocab):
         self.vocab = vocab
-        prog = tqdm(total=vocab)
+
+    def train(self, bow):
+        prog = tqdm(total=self.vocab)
         utf = list(bow.encode("utf-8"))
         table: dict[Union[int, tuple[int, int]], int] = {}
         for i, ch in enumerate(sorted(list(set(utf)))):
@@ -63,7 +66,7 @@ class BPE:
                 i += 1
             return pairs
 
-        while len(table) < vocab:
+        while len(table) < self.vocab:
             p = pairs(tokens)
             if not p:
                 break
@@ -117,9 +120,10 @@ class BPE:
         tokens = []
         slice = list(s.encode("utf-8"))
         prog = tqdm(total=len(slice))
-        while slice:
-            node, depth = self.ctot.get(slice)
-            if depth == 0:
+        i = 0
+        while i < len(s):
+            node, ni = self.ctot.walk(slice, i)
+            if i == ni:
                 raise RuntimeError(
                     "ctot invalid! cannot find sequence for ",
                     slice[:10],
@@ -129,8 +133,8 @@ class BPE:
                     list(slice[0].encode("utf-8")),
                 )
             tokens.append(node.token)
-            slice = slice[depth:]
-            prog.update(depth)
+            prog.update(ni - i)
+            i = ni
         prog.close()
         return tokens
 

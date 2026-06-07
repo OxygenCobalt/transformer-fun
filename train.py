@@ -14,28 +14,6 @@ torch.manual_seed(1616)
 with open("input.txt", "r", encoding="utf-8") as f:
     text = f.read()
 
-bpe = BPE(text, 256)
-
-# bg = Bigram(text)
-bg = bpe
-data = torch.tensor(bg.forward(text), dtype=torch.long)
-
-n = int(0.9 * len(data))
-train = data[:n]
-test = data[n:]
-
-
-def select(data):
-    # random displacement idxs for the batch
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-    # crazy freaking stacking holy crap
-    # output becomes like:
-    # x: access batch yields sliceable block
-    # y: access batch yields indexable output
-    x = torch.stack([data[i : i + block_size] for i in ix]).to(device)
-    y = torch.stack([data[i + 1 : i + block_size + 1] for i in ix]).to(device)
-    return x, y
-
 
 # just eval code eh
 def estimate_loss(model):
@@ -66,12 +44,33 @@ heads = 6
 n_layer = 6
 dropout = 0.2
 
-m = Transformer(n_layer, bg.vocab, embed_size, heads, block_size, dropout, device).to(
-    device
-)
-
 checkpoint_dir = "checkpoints"
 os.makedirs(checkpoint_dir, exist_ok=True)
+
+bpe = BPE(text, 256)
+bpe.train(text)
+data = torch.tensor(bpe.forward(text), dtype=torch.long)
+
+n = int(0.9 * len(data))
+train = data[:n]
+test = data[n:]
+
+
+def select(data):
+    # random displacement idxs for the batch
+    ix = torch.randint(len(data) - block_size, (batch_size,))
+    # crazy freaking stacking holy crap
+    # output becomes like:
+    # x: access batch yields sliceable block
+    # y: access batch yields indexable output
+    x = torch.stack([data[i : i + block_size] for i in ix]).to(device)
+    y = torch.stack([data[i + 1 : i + block_size + 1] for i in ix]).to(device)
+    return x, y
+
+
+m = Transformer(n_layer, bpe.vocab, embed_size, heads, block_size, dropout, device).to(
+    device
+)
 
 # adam optimizer! this is really effective but i dont know why nor how it works
 optimizer = torch.optim.AdamW(m.parameters(), lr=learning_rate)
