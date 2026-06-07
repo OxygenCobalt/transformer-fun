@@ -16,8 +16,8 @@ with open("input.txt", "r", encoding="utf-8") as f:
 
 bpe = BPE(text, 256)
 
-sys.exit(0)
-bg = Bigram(text)
+# bg = Bigram(text)
+bg = bpe
 data = torch.tensor(bg.forward(text), dtype=torch.long)
 
 n = int(0.9 * len(data))

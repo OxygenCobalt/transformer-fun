@@ -116,6 +116,7 @@ class BPE:
     def forward(self, s):
         tokens = []
         slice = list(s.encode("utf-8"))
+        prog = tqdm(total=len(slice))
         while slice:
             node, depth = self.ctot.get(slice)
             if depth == 0:
@@ -129,6 +130,8 @@ class BPE:
                 )
             tokens.append(node.token)
             slice = slice[depth:]
+            prog.update(depth)
+        prog.close()
         return tokens
 
     def backward(self, s):
