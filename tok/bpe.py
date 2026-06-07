@@ -1,3 +1,4 @@
+import pickle
 from typing import Self, Union
 
 from tqdm import tqdm
@@ -143,3 +144,17 @@ class BPE:
         for tok in s:
             utf += self.ttoc[tok].seq
         return bytes(utf).decode("utf-8", "replace")
+
+    def load(self, file) -> bool:
+        try:
+            dat = pickle.Unpickler(file).load()
+        except:
+            return False
+        self.vocab = dat["vocab"]
+        self.ctot = dat["ctot"]
+        self.ttoc = dat["ttoc"]
+        return True
+
+    def save(self, file):
+        dat = {"vocab": self.vocab, "ctot": self.ctot, "ttoc": self.ttoc}
+        pickle.Pickler(file).dump(dat)

@@ -48,7 +48,15 @@ checkpoint_dir = "checkpoints"
 os.makedirs(checkpoint_dir, exist_ok=True)
 
 bpe = BPE(text, 256)
-bpe.train(text)
+bpe_path = checkpoint_dir + "/bpe.pl"
+loaded = False
+if os.path.exists(bpe_path):
+    with open(bpe_path, "rb") as checkpoint:
+        loaded = bpe.load(checkpoint)
+if not loaded:
+    bpe.train(text)
+    with open(bpe_path, "xb") as checkpoint:
+        bpe.save(checkpoint)
 data = torch.tensor(bpe.forward(text), dtype=torch.long)
 
 n = int(0.9 * len(data))
