@@ -46,12 +46,19 @@ class BPE:
 
     def train(self, bow):
         prog = tqdm(total=self.vocab)
+        prog.desc = "bpe.train"
         utf = list(bow.encode("utf-8"))
-        table: dict[Union[int, tuple[int, int]], int] = {}
+        self.ctot = _BPETrie(None)
+        self.ttoc: dict[int, _BPETrie] = {}
         for i, ch in enumerate(sorted(list(set(utf)))):
-            table[ch] = i
+            self.ttoc[i] = self.ctot.insert([ch], i)
             prog.update(1)
-        tokens = list(map(lambda c: table[c], utf))
+        tokens = []
+        for c in utf:
+            token = self.ctot.children[c].token
+            if token is None:
+                raise RuntimeError("invalid shallow trie somehow")
+            tokens.append(token)
 
         def pairs(tokens: list[int]) -> dict[tuple[int, int], list[int]]:
             pairs: dict[tuple[int, int], list[int]] = {}
@@ -67,17 +74,19 @@ class BPE:
                 i += 1
             return pairs
 
-        while len(table) < self.vocab:
+        while len(self.ttoc) < self.vocab:
             p = pairs(tokens)
             if not p:
                 break
-            common = max(p.items(), key=lambda e: len(e[1]))
-            target, idxs = common
-            idxs = set(idxs)
-            new_token = len(table)
-            table[target] = new_token
+            common_pair, common_pair_idxs = max(p.items(), key=lambda e: len(e[1]))
+            common_now, common_later = common_pair
+            new_token = len(self.ttoc)
+            self.ttoc[new_token] = self.ttoc[common_now].insert(
+                [common_later], new_token
+            )
             new_tokens = []
             i = 0
+            idxs = set(common_pair_idxs)
             while i < len(tokens):
                 if i in idxs:
                     new_tokens.append(new_token)
@@ -90,37 +99,9 @@ class BPE:
 
         prog.close()
 
-        self.ctot = _BPETrie(None)
-        self.ttoc: dict[int, _BPETrie] = {}
-
-        flip = dict(map(lambda i: (i[1], i[0]), table.items()))
-        for token, seq in tqdm(flip.items()):
-            if isinstance(seq, int):
-                self.ttoc[token] = self.ctot.insert([seq], token)
-            else:
-                seq = [seq[0], seq[1]]
-                base = {}
-                while True:
-                    dirty = False
-                    for i, s in enumerate(seq):
-                        if i in base:
-                            continue
-                        u = flip[s]
-                        if isinstance(u, int):
-                            seq[i] = u
-                            base[i] = True
-                        else:
-                            seq[i] = u[1]
-                            seq.insert(i, u[0])
-                            dirty = True
-                    if not dirty:
-                        break
-                self.ttoc[token] = self.ctot.insert(seq, token)
-
     def forward(self, s):
         tokens = []
         slice = list(s.encode("utf-8"))
-        prog = tqdm(total=len(slice))
         i = 0
         while i < len(s):
             node, ni = self.ctot.walk(slice, i)
@@ -134,9 +115,7 @@ class BPE:
                     list(slice[0].encode("utf-8")),
                 )
             tokens.append(node.token)
-            prog.update(ni - i)
             i = ni
-        prog.close()
         return tokens
 
     def backward(self, s):
