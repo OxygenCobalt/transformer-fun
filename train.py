@@ -6,6 +6,7 @@ from torch.nn import functional as F
 
 from tf.tf import Transformer
 from tok.bigram import Bigram
+from tok.bpe import BPE
 
 # seed
 torch.manual_seed(1616)
@@ -13,6 +14,9 @@ torch.manual_seed(1616)
 with open("input.txt", "r", encoding="utf-8") as f:
     text = f.read()
 
+bpe = BPE(text, 256)
+
+sys.exit(0)
 bg = Bigram(text)
 data = torch.tensor(bg.forward(text), dtype=torch.long)
 
