@@ -5,7 +5,6 @@ import tqdm
 from torch.nn import functional as F
 
 from tf.tf import Transformer
-from tok.bigram import Bigram
 from tok.bpe import BPE
 
 # seed
@@ -15,19 +14,19 @@ with open("input.txt", "r", encoding="utf-8") as f:
     text = f.read()
 
 
-# just eval code eh
-def estimate_loss(model):
-    out = {}
-    model.eval()
-    for split in ["train", "test"]:
-        losses = torch.zeros(eval_iters)
-        for k in tqdm.tqdm(range(eval_iters)):
-            X, Y = select(train if split == "train" else test)
-            logits, loss = model(X, Y)
-            losses[k] = loss.item()
-        out[split] = losses.mean()
-    model.train()
-    return out
+# # just eval code eh
+# def estimate_loss(model):
+#     out = {}
+#     model.eval()
+#     for split in ["train", "test"]:
+#         losses = torch.zeros(eval_iters)
+#         for k in tqdm.tqdm(range(eval_iters)):
+#             X, Y = select(train if split == "train" else test)
+#             logits, loss = model(X, Y)
+#             losses[k] = loss.item()
+#         out[split] = losses.mean()
+#     model.train()
+#     return out
 
 
 # hyperparams
@@ -38,7 +37,8 @@ block_size = 256
 learning_rate = 3e-4
 eval_interval = 100
 eval_iters = 200
-max_iters = 5000
+epochs = 10
+epoch_iters = 500
 embed_size = 384
 heads = 6
 n_layer = 6
@@ -47,18 +47,22 @@ dropout = 0.2
 checkpoint_dir = "checkpoints"
 os.makedirs(checkpoint_dir, exist_ok=True)
 
+print("initializing bpe tokenizer")
 bpe = BPE(text, 256)
 bpe_path = checkpoint_dir + "/bpe.pl"
 loaded = False
 if os.path.exists(bpe_path):
     with open(bpe_path, "rb") as checkpoint:
+        print("reloaded bpe tokenizer checkpoint")
         loaded = bpe.load(checkpoint)
 if not loaded:
     bpe.train(text)
     with open(bpe_path, "xb") as checkpoint:
+        print("saved bpe tokenizer")
         bpe.save(checkpoint)
-data = torch.tensor(bpe.forward(text), dtype=torch.long)
 
+print("creating tokenized train/test sets")
+data = torch.tensor(bpe.forward(text), dtype=torch.long)
 n = int(0.9 * len(data))
 train = data[:n]
 test = data[n:]
@@ -94,34 +98,35 @@ if os.path.exists(latest_ckpt):
     start_epoch = ckpt["epoch"] + 1
     print(f"resumed from epoch {start_epoch}")
 else:
+    print("saving initial model state")
     torch.save(
         {"model": m.state_dict(), "optimizer": optimizer.state_dict(), "epoch": -1},
         os.path.join(checkpoint_dir, "init.pt"),
     )
 
-for step in tqdm.tqdm(range(start_epoch, max_iters)):
-    xb, yb = select(train)
-    logits = m(xb)
-    # calculate loss
-    batch, time, channels = logits.shape
-    # crossentropy wants [flat, chan]
-    l_logits = logits.view(batch * time, channels)
-    l_targets = yb.view(batch * time)
-    loss = F.cross_entropy(l_logits, l_targets)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
+for epoch in range(start_epoch, epochs):
+    prog = tqdm.tqdm(range(epoch_iters))
+    prog.desc = f"epoch {epoch}"
+    for step in prog:
+        xb, yb = select(train)
+        logits = m(xb)
+        # calculate loss
+        batch, time, channels = logits.shape
+        # crossentropy wants [flat, chan]
+        l_logits = logits.view(batch * time, channels)
+        l_targets = yb.view(batch * time)
+        loss = F.cross_entropy(l_logits, l_targets)
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
 
-    if step % eval_interval == 0:
-        # --claude checkpoint code cuz training is slow--
-        epoch = step // eval_interval
-        ckpt_data = {
-            "model": m.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "epoch": epoch,
-        }
-        torch.save(ckpt_data, latest_ckpt)
-        torch.save(ckpt_data, os.path.join(checkpoint_dir, f"epoch_{epoch}.pt"))
+    ckpt_data = {
+        "model": m.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "epoch": epoch,
+    }
+    torch.save(ckpt_data, latest_ckpt)
+    torch.save(ckpt_data, os.path.join(checkpoint_dir, f"epoch_{epoch}.pt"))
 
 # test model now
 idx = torch.zeros((1, 1), dtype=torch.long).to(device)
@@ -130,10 +135,10 @@ idx = torch.zeros((1, 1), dtype=torch.long).to(device)
 while True:
     # crop to context window (block size)
     # this is why all models are fixed-context
-    logits, loss = m(idx[:, -block_size:])
+    logits = m(idx[:, -block_size:])
     logits = logits[:, -1, :]  # (B, C): last time step
     probs = F.softmax(logits, dim=-1)  # (B, C)
     idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
     # oh this is why models can stream token by token
-    print(bg.backward(idx_next[0].tolist()), end="", flush=True)
+    print(bpe.backward(idx_next[0].tolist()), end="", flush=True)
     idx = torch.cat((idx, idx_next), dim=1)
