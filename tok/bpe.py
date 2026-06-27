@@ -1,139 +1,90 @@
 import pickle
-from typing import Self, Union
+from collections import Counter
+from itertools import pairwise
 
+import bpe_native
 from tqdm import tqdm
 
-
-class _BPETrie:
-    def __init__(self, parent, token: int | None = None, seq: list = []):
-        self.token = token
-        self.seq = seq
-        self.children: dict[int, _BPETrie] = {}
-        self.parent = parent
-
-    def insert(self, utf: list[int], token: int):
-        cur = self
-        for c in utf:
-            if c in cur.children:
-                cur = cur.children[c]
-            else:
-                new = _BPETrie(cur)
-                cur.children[c] = new
-                cur = new
-        cur.token = token
-        cur.seq = utf
-        return cur
-
-    def walk(self, seq: list[int], start: int):
-        cur = self
-        i = start
-        while i < len(seq):
-            c = seq[i]
-            if c in cur.children:
-                cur = cur.children[c]
-                i += 1
-            else:
-                break
-        while cur.token is None:
-            cur = cur.parent
-            i -= 1
-        return (cur, i)
+BASE_VOCAB_SIZE = 256
+TERMINATOR = 256
 
 
 class BPE:
-    def __init__(self, bow, vocab):
+    def __init__(self, vocab):
         self.vocab = vocab
 
-    def train(self, bow):
-        prog = tqdm(total=self.vocab)
-        prog.desc = "bpe.train"
-        utf = list(bow.encode("utf-8"))
-        self.ctot = _BPETrie(None)
-        self.ttoc: dict[int, _BPETrie] = {}
-        for i, ch in enumerate(sorted(list(set(utf)))):
-            self.ttoc[i] = self.ctot.insert([ch], i)
-            prog.update(1)
+    def train(self, docs: list[str]):
+        self.pairs = bpe_native.train_native(docs, self.vocab)
+        print(self.pairs)
+
+        self.token_to_pair = dict(
+            map(lambda t: (t[0] + BASE_VOCAB_SIZE + 1, t[1]), enumerate(self.pairs))
+        )
+        self.pair_to_token = dict(
+            map(lambda t: (t[1], t[0] + BASE_VOCAB_SIZE + 1), enumerate(self.pairs))
+        )
+
+    def forward(self, doc):
         tokens = []
-        for c in utf:
-            token = self.ctot.children[c].token
-            if token is None:
-                raise RuntimeError("invalid shallow trie somehow")
-            tokens.append(token)
-
-        def pairs(tokens: list[int]) -> dict[tuple[int, int], list[int]]:
-            pairs: dict[tuple[int, int], list[int]] = {}
-            i = 0
-            while i < len(tokens) - 1:
-                now = tokens[i]
-                later = tokens[i + 1]
-                pair = (now, later)
-                if pair in pairs:
-                    pairs[pair].append(i)
+        utf = list(doc.encode("utf-8"))
+        for byte in utf:
+            tokens.append(byte)
+            while len(tokens) > 1:
+                a = tokens[-2]
+                b = tokens[-1]
+                if (a, b) in self.pair_to_token:
+                    tokens[-2] = self.pair_to_token[(a, b)]
+                    tokens.pop()
                 else:
-                    pairs[pair] = [i]
-                i += 1
-            return pairs
-
-        while len(self.ttoc) < self.vocab:
-            p = pairs(tokens)
-            if not p:
-                break
-            common_pair, common_pair_idxs = max(p.items(), key=lambda e: len(e[1]))
-            common_now, common_later = common_pair
-            new_token = len(self.ttoc)
-            self.ttoc[new_token] = self.ttoc[common_now].insert(
-                [common_later], new_token
-            )
-            new_tokens = []
-            i = 0
-            idxs = set(common_pair_idxs)
-            while i < len(tokens):
-                if i in idxs:
-                    new_tokens.append(new_token)
-                    i += 2
-                else:
-                    new_tokens.append(tokens[i])
-                    i += 1
-            tokens = new_tokens
-            prog.update(1)
-
-        prog.close()
-
-    def forward(self, s):
-        tokens = []
-        slice = list(s.encode("utf-8"))
-        i = 0
-        while i < len(s):
-            node, ni = self.ctot.walk(slice, i)
-            if i == ni:
-                raise RuntimeError(
-                    "ctot invalid! cannot find sequence for ",
-                    slice[:10],
-                    "..., somehow the root neighbors are ",
-                    node.children.keys(),
-                    " and all i got is ",
-                    list(slice[0].encode("utf-8")),
-                )
-            tokens.append(node.token)
-            i = ni
+                    break
+        tokens.append(TERMINATOR)
         return tokens
 
-    def backward(self, s):
+    def backward(self, tokens) -> str:
         utf = []
-        for tok in s:
-            utf += self.ttoc[tok].seq
+        for tok in tokens:
+            if tok == TERMINATOR:
+                break
+            expanded = [tok]
+            dirty = True
+            while dirty:
+                dirty = False
+                new_expanded = []
+                for tok in expanded:
+                    insane_int_conversion = int(tok)
+                    if insane_int_conversion in self.token_to_pair:
+                        a, b = self.token_to_pair[insane_int_conversion]
+                        new_expanded.append(a)
+                        new_expanded.append(b)
+                        dirty = True
+                    else:
+                        new_expanded.append(insane_int_conversion)
+                expanded = new_expanded
+            utf += expanded
         return bytes(utf).decode("utf-8", "replace")
 
     def load(self, file) -> bool:
         try:
             dat = pickle.Unpickler(file).load()
-        except:
+        except Exception as e:
+            print("failed to load bpe tokenizer file: ", e)
+            return False
+        if self.vocab != dat["vocab"]:
+            print("vocab diverges")
             return False
         self.vocab = dat["vocab"]
-        self.ctot = dat["ctot"]
-        self.ttoc = dat["ttoc"]
+        self.pairs = dat["pairs"]
+        print(len(self.pairs))
+        self.token_to_pair = dict(
+            map(lambda t: (t[0] + BASE_VOCAB_SIZE + 1, t[1]), enumerate(self.pairs))
+        )
+        self.pair_to_token = dict(
+            map(lambda t: (t[1], t[0] + BASE_VOCAB_SIZE + 1), enumerate(self.pairs))
+        )
+
         return True
 
     def save(self, file):
-        dat = {"vocab": self.vocab, "ctot": self.ctot, "ttoc": self.ttoc}
+        dat = {"vocab": self.vocab, "pairs": self.pairs}
         pickle.Pickler(file).dump(dat)
+        pass

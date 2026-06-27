@@ -1,0 +1,13 @@
+[package]
+name = "bpe_native"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "bpe_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+indicatif = "0.18.4"
+pyo3 = { version = "0.28.3", features = ["extension-module"] }
+rayon = "1.12.0"

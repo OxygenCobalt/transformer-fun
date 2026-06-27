@@ -1,5 +1,8 @@
 import os
+import pickle
+import random
 
+import pandas
 import torch
 import tqdm
 from torch.nn import functional as F
@@ -10,23 +13,20 @@ from tok.bpe import BPE
 # seed
 torch.manual_seed(1616)
 
-with open("input.txt", "r", encoding="utf-8") as f:
-    text = f.read()
+# with open("input.txt", "r", encoding="utf-8") as f:
+#     text = f.read()
 
+pq = pandas.concat(
+    [
+        pandas.read_parquet("./wikitext/wikitext-103-v1/train-00000-of-00002.parquet"),
+        pandas.read_parquet("./wikitext/wikitext-103-v1/train-00001-of-00002.parquet"),
+    ]
+)
+
+docs = [text for text in pq["text"]]
 
 # # just eval code eh
 # def estimate_loss(model):
-#     out = {}
-#     model.eval()
-#     for split in ["train", "test"]:
-#         losses = torch.zeros(eval_iters)
-#         for k in tqdm.tqdm(range(eval_iters)):
-#             X, Y = select(train if split == "train" else test)
-#             logits, loss = model(X, Y)
-#             losses[k] = loss.item()
-#         out[split] = losses.mean()
-#     model.train()
-#     return out
 
 
 # hyperparams
@@ -47,42 +47,47 @@ dropout = 0.2
 checkpoint_dir = "checkpoints"
 os.makedirs(checkpoint_dir, exist_ok=True)
 
-print("initializing bpe tokenizer")
-bpe = BPE(text, 256)
+print("initializing tokenizer")
+tokenizer = BPE(512)
 bpe_path = checkpoint_dir + "/bpe.pl"
 loaded = False
 if os.path.exists(bpe_path):
     with open(bpe_path, "rb") as checkpoint:
         print("reloaded bpe tokenizer checkpoint")
-        loaded = bpe.load(checkpoint)
+        loaded = tokenizer.load(checkpoint)
 if not loaded:
-    bpe.train(text)
+    tokenizer.train(docs)
     with open(bpe_path, "xb") as checkpoint:
         print("saved bpe tokenizer")
-        bpe.save(checkpoint)
+        tokenizer.save(checkpoint)
 
-print("creating tokenized train/test sets")
-data = torch.tensor(bpe.forward(text), dtype=torch.long)
-n = int(0.9 * len(data))
-train = data[:n]
-test = data[n:]
+examples = []
+examples_path = checkpoint_dir + "/examples.pl"
+loaded_examples = False
+if os.path.exists(examples_path):
+    with open(examples_path, "rb") as checkpoint:
+        print("reloaded tokenized checkpoint")
+        examples = pickle.Unpickler(checkpoint).load()["examples"]
+        loaded_examples = True
+        print("test")
 
+if not loaded_examples:
+    print("tokenizing data")
+    for doc in tqdm.tqdm(docs):
+        tokenized_doc = tokenizer.forward(doc)
+        if len(tokenized_doc) <= block_size:
+            continue
+        examples.append(tokenized_doc)
+    with open(examples_path, "xb") as checkpoint:
+        pickle.Pickler(checkpoint).dump({"examples": examples})
 
-def select(data):
-    # random displacement idxs for the batch
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-    # crazy freaking stacking holy crap
-    # output becomes like:
-    # x: access batch yields sliceable block
-    # y: access batch yields indexable output
-    x = torch.stack([data[i : i + block_size] for i in ix]).to(device)
-    y = torch.stack([data[i + 1 : i + block_size + 1] for i in ix]).to(device)
-    return x, y
+n = int(0.9 * len(examples))
+train = examples[:n]
+test = examples[n:]
 
-
-m = Transformer(n_layer, bpe.vocab, embed_size, heads, block_size, dropout, device).to(
-    device
-)
+m = Transformer(
+    n_layer, tokenizer.vocab, embed_size, heads, block_size, dropout, device
+).to(device)
 
 # adam optimizer! this is really effective but i dont know why nor how it works
 optimizer = torch.optim.AdamW(m.parameters(), lr=learning_rate)
@@ -108,7 +113,21 @@ for epoch in range(start_epoch, epochs):
     prog = tqdm.tqdm(range(epoch_iters))
     prog.desc = f"epoch {epoch}"
     for step in prog:
-        xb, yb = select(train)
+        xs = []
+        ys = []
+        for i in range(batch_size):
+            doc = random.choice(train)
+            i = random.randint(0, len(doc) - block_size - 1)
+            xs.append(
+                torch.tensor(doc[i : i + block_size], dtype=torch.long).to(device)
+            )
+            ys.append(
+                torch.tensor(doc[i + 1 : i + block_size + 1], dtype=torch.long).to(
+                    device
+                )
+            )
+        xb = torch.stack(xs).to(device)
+        yb = torch.stack(ys).to(device)
         logits = m(xb)
         # calculate loss
         batch, time, channels = logits.shape
@@ -116,7 +135,7 @@ for epoch in range(start_epoch, epochs):
         l_logits = logits.view(batch * time, channels)
         l_targets = yb.view(batch * time)
         loss = F.cross_entropy(l_logits, l_targets)
-        optimizer.zero_grad(set_to_none=True)
+        # optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
 
@@ -127,6 +146,39 @@ for epoch in range(start_epoch, epochs):
     }
     torch.save(ckpt_data, latest_ckpt)
     torch.save(ckpt_data, os.path.join(checkpoint_dir, f"epoch_{epoch}.pt"))
+
+    # eval
+    out = {}
+    m.eval()
+    for split in ["train", "test"]:
+        losses = torch.zeros(eval_iters)
+        for k in tqdm.tqdm(range(eval_iters)):
+            set = train if split == "train" else test
+            xs = []
+            ys = []
+            for i in range(batch_size):
+                doc = random.choice(set)
+                i = random.randint(0, len(doc) - block_size - 1)
+                xs.append(
+                    torch.tensor(doc[i : i + block_size], dtype=torch.long).to(device)
+                )
+                ys.append(
+                    torch.tensor(doc[i + 1 : i + block_size + 1], dtype=torch.long).to(
+                        device
+                    )
+                )
+            xb = torch.stack(xs).to(device)
+            yb = torch.stack(ys).to(device)
+            logits = m(xb)
+            batch, time, channels = logits.shape
+            l_logits = logits.view(batch * time, channels)
+            l_targets = yb.view(batch * time)
+            loss = F.cross_entropy(l_logits, l_targets)
+            optimizer.zero_grad(set_to_none=True)
+            losses[k] = loss.item()
+        out[split] = losses.mean()
+
+    print("losses: ", out)
 
 # test model now
 idx = torch.zeros((1, 1), dtype=torch.long).to(device)
@@ -140,5 +192,5 @@ while True:
     probs = F.softmax(logits, dim=-1)  # (B, C)
     idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
     # oh this is why models can stream token by token
-    print(bpe.backward(idx_next[0].tolist()), end="", flush=True)
+    print(tokenizer.backward(idx_next[0].tolist()), end="", flush=True)
     idx = torch.cat((idx, idx_next), dim=1)
