@@ -8,13 +8,11 @@ import tqdm
 from torch.nn import functional as F
 
 from tf.tf import Transformer
+from tok.bigram import Bigram
 from tok.bpe import BPE
 
 # seed
 torch.manual_seed(1616)
-
-# with open("input.txt", "r", encoding="utf-8") as f:
-#     text = f.read()
 
 pq = pandas.concat(
     [
@@ -22,12 +20,6 @@ pq = pandas.concat(
         pandas.read_parquet("./wikitext/wikitext-103-v1/train-00001-of-00002.parquet"),
     ]
 )
-
-docs = [text for text in pq["text"]]
-
-# # just eval code eh
-# def estimate_loss(model):
-
 
 # hyperparams
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -69,7 +61,6 @@ if os.path.exists(examples_path):
         print("reloaded tokenized checkpoint")
         examples = pickle.Unpickler(checkpoint).load()["examples"]
         loaded_examples = True
-        print("test")
 
 if not loaded_examples:
     print("tokenizing data")
