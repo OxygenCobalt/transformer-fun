@@ -110,6 +110,42 @@ else:
     )
 
 for epoch in range(start_epoch, epochs):
+    # eval
+    out = {}
+    m.eval()
+    with torch.no_grad():
+        for split in ["train", "test"]:
+            losses = torch.zeros(eval_iters)
+            for k in range(eval_iters):
+                set = train if split == "train" else test
+                xs = []
+                ys = []
+                for i in range(batch_size):
+                    doc = random.choice(set)
+                    i = random.randint(0, len(doc) - block_size - 1)
+                    xs.append(
+                        torch.tensor(doc[i : i + block_size], dtype=torch.long).to(
+                            device
+                        )
+                    )
+                    ys.append(
+                        torch.tensor(
+                            doc[i + 1 : i + block_size + 1], dtype=torch.long
+                        ).to(device)
+                    )
+                xb = torch.stack(xs).to(device)
+                yb = torch.stack(ys).to(device)
+                logits = m(xb)
+                batch, time, channels = logits.shape
+                l_logits = logits.view(batch * time, channels)
+                l_targets = yb.view(batch * time)
+                loss = F.cross_entropy(l_logits, l_targets)
+                losses[k] = loss.item()
+            out[split] = losses.mean()
+    m.train()
+
+    print("losses: ", out)
+
     prog = tqdm.tqdm(range(epoch_iters))
     prog.desc = f"epoch {epoch}"
     for step in prog:
@@ -135,7 +171,7 @@ for epoch in range(start_epoch, epochs):
         l_logits = logits.view(batch * time, channels)
         l_targets = yb.view(batch * time)
         loss = F.cross_entropy(l_logits, l_targets)
-        # optimizer.zero_grad(set_to_none=True)
+        optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
 
