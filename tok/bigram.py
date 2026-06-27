@@ -1,6 +1,9 @@
 class Bigram:
-    def __init__(self, text):
-        chars = sorted(list(set(text)))
+    def __init__(self):
+        pass
+
+    def train(self, docs: list[str]):
+        chars = sorted(list(set("".join(docs))))
         self.vocab = len(chars)
         self.stoi = {ch: i for i, ch in enumerate(chars)}
         self.itos = {i: ch for i, ch in enumerate(chars)}

@@ -15,7 +15,6 @@ class BPE:
 
     def train(self, docs: list[str]):
         self.pairs = bpe_native.train_native(docs, self.vocab)
-        print(self.pairs)
 
         self.token_to_pair = dict(
             map(lambda t: (t[0] + BASE_VOCAB_SIZE + 1, t[1]), enumerate(self.pairs))
