@@ -62,6 +62,26 @@ class BPE:
             utf += expanded
         return bytes(utf).decode("utf-8", "replace")
 
+    def one(self, token) -> str | None:
+        if token == TERMINATOR:
+            return None
+        expanded = [token]
+        dirty = True
+        while dirty:
+            dirty = False
+            new_expanded = []
+            for tok in expanded:
+                insane_int_conversion = int(tok)
+                if insane_int_conversion in self.token_to_pair:
+                    a, b = self.token_to_pair[insane_int_conversion]
+                    new_expanded.append(a)
+                    new_expanded.append(b)
+                    dirty = True
+                else:
+                    new_expanded.append(insane_int_conversion)
+            expanded = new_expanded
+        return bytes(expanded).decode("utf-8", "replace")
+
     def load(self, file) -> bool:
         try:
             dat = pickle.Unpickler(file).load()

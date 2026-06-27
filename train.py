@@ -183,50 +183,25 @@ for epoch in range(start_epoch, epochs):
     torch.save(ckpt_data, latest_ckpt)
     torch.save(ckpt_data, os.path.join(checkpoint_dir, f"epoch_{epoch}.pt"))
 
-    # eval
-    out = {}
-    m.eval()
-    for split in ["train", "test"]:
-        losses = torch.zeros(eval_iters)
-        for k in tqdm.tqdm(range(eval_iters)):
-            set = train if split == "train" else test
-            xs = []
-            ys = []
-            for i in range(batch_size):
-                doc = random.choice(set)
-                i = random.randint(0, len(doc) - block_size - 1)
-                xs.append(
-                    torch.tensor(doc[i : i + block_size], dtype=torch.long).to(device)
-                )
-                ys.append(
-                    torch.tensor(doc[i + 1 : i + block_size + 1], dtype=torch.long).to(
-                        device
-                    )
-                )
-            xb = torch.stack(xs).to(device)
-            yb = torch.stack(ys).to(device)
-            logits = m(xb)
-            batch, time, channels = logits.shape
-            l_logits = logits.view(batch * time, channels)
-            l_targets = yb.view(batch * time)
-            loss = F.cross_entropy(l_logits, l_targets)
-            optimizer.zero_grad(set_to_none=True)
-            losses[k] = loss.item()
-        out[split] = losses.mean()
-
-    print("losses: ", out)
 
 # test model now
-idx = torch.zeros((1, 1), dtype=torch.long).to(device)
 
 # my code: i want to generate tokens forever
 while True:
+    prompt = input("prompt: ")
+    idx = torch.tensor([tokenizer.forward(prompt)], dtype=torch.long).to(device)
+    print(idx.shape)
     # crop to context window (block size)
     # this is why all models are fixed-context
-    logits = m(idx[:, -block_size:])
-    logits = logits[:, -1, :]  # (B, C): last time step
-    probs = F.softmax(logits, dim=-1)  # (B, C)
-    idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
     # oh this is why models can stream token by token
-    print(tokenizer.backward(idx_next[0].tolist()), end="", flush=True)
-    idx = torch.cat((idx, idx_next), dim=1)
+    while True:
+        logits = m(idx[:, -block_size:])
+        logits = logits[:, -1, :]  # (B, C): last time step
+        probs = F.softmax(logits, dim=-1)  # (B, C)
+        idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
+        s = tokenizer.one(idx_next[0])
+        if s is None:
+            break
+        print(s, end="", flush=True)
+    print("--end--")
+    # idx = torch.cat((idx, idx_next), dim=1)
