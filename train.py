@@ -13,13 +13,21 @@ from tok.bpe import BPE
 
 # seed
 torch.manual_seed(1616)
+random.seed(1616)
 
-pq = pandas.concat(
+train_data = pandas.concat(
     [
         pandas.read_parquet("./wikitext/wikitext-103-v1/train-00000-of-00002.parquet"),
         pandas.read_parquet("./wikitext/wikitext-103-v1/train-00001-of-00002.parquet"),
     ]
 )
+train_docs = [text for text in train_data["text"]]
+test_data = pandas.concat(
+    [
+        pandas.read_parquet("./wikitext/wikitext-103-v1/test-00000-of-00001.parquet"),
+    ]
+)
+test_docs = [text for text in test_data["text"]]
 
 # hyperparams
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -48,33 +56,34 @@ if os.path.exists(bpe_path):
         print("reloaded bpe tokenizer checkpoint")
         loaded = tokenizer.load(checkpoint)
 if not loaded:
-    tokenizer.train(docs)
+    tokenizer.train(train_docs + test_docs)
     with open(bpe_path, "xb") as checkpoint:
         print("saved bpe tokenizer")
         tokenizer.save(checkpoint)
 
-examples = []
-examples_path = checkpoint_dir + "/examples.pl"
-loaded_examples = False
-if os.path.exists(examples_path):
-    with open(examples_path, "rb") as checkpoint:
+train: list[int] = []
+test: list[int] = []
+universe_path = checkpoint_dir + "/universe.pl"
+loaded_universe = False
+if os.path.exists(universe_path):
+    with open(universe_path, "rb") as checkpoint:
         print("reloaded tokenized checkpoint")
-        examples = pickle.Unpickler(checkpoint).load()["examples"]
-        loaded_examples = True
+        dat = pickle.Unpickler(checkpoint).load()
+        train = dat["train"]
+        test = dat["test"]
+        loaded_universe = True
 
-if not loaded_examples:
+if not loaded_universe:
     print("tokenizing data")
-    for doc in tqdm.tqdm(docs):
+    for doc in tqdm.tqdm(train_docs, desc="train"):
         tokenized_doc = tokenizer.forward(doc)
-        if len(tokenized_doc) <= block_size:
-            continue
-        examples.append(tokenized_doc)
-    with open(examples_path, "xb") as checkpoint:
-        pickle.Pickler(checkpoint).dump({"examples": examples})
+        train += tokenized_doc
+    for doc in tqdm.tqdm(train_docs, desc="test"):
+        tokenized_doc = tokenizer.forward(doc)
+        test += tokenized_doc
+    with open(universe_path, "xb") as checkpoint:
+        pickle.Pickler(checkpoint).dump({"train": train, "test": test})
 
-n = int(0.9 * len(examples))
-train = examples[:n]
-test = examples[n:]
 
 m = Transformer(
     n_layer, tokenizer.vocab, embed_size, heads, block_size, dropout, device
@@ -109,23 +118,14 @@ for epoch in range(start_epoch, epochs):
             losses = torch.zeros(eval_iters)
             for k in range(eval_iters):
                 set = train if split == "train" else test
-                xs = []
-                ys = []
-                for i in range(batch_size):
-                    doc = random.choice(set)
-                    i = random.randint(0, len(doc) - block_size - 1)
-                    xs.append(
-                        torch.tensor(doc[i : i + block_size], dtype=torch.long).to(
-                            device
-                        )
-                    )
-                    ys.append(
-                        torch.tensor(
-                            doc[i + 1 : i + block_size + 1], dtype=torch.long
-                        ).to(device)
-                    )
-                xb = torch.stack(xs).to(device)
-                yb = torch.stack(ys).to(device)
+                ixs = [
+                    random.randint(0, len(set) - block_size - 1)
+                    for _ in range(batch_size)
+                ]
+                xb = torch.tensor([set[i : i + block_size] for i in ixs]).to(device)
+                yb = torch.tensor([set[i + 1 : i + block_size + 1] for i in ixs]).to(
+                    device
+                )
                 logits = m(xb)
                 batch, time, channels = logits.shape
                 l_logits = logits.view(batch * time, channels)
@@ -140,21 +140,11 @@ for epoch in range(start_epoch, epochs):
     prog = tqdm.tqdm(range(epoch_iters))
     prog.desc = f"epoch {epoch}"
     for step in prog:
-        xs = []
-        ys = []
-        for i in range(batch_size):
-            doc = random.choice(train)
-            i = random.randint(0, len(doc) - block_size - 1)
-            xs.append(
-                torch.tensor(doc[i : i + block_size], dtype=torch.long).to(device)
-            )
-            ys.append(
-                torch.tensor(doc[i + 1 : i + block_size + 1], dtype=torch.long).to(
-                    device
-                )
-            )
-        xb = torch.stack(xs).to(device)
-        yb = torch.stack(ys).to(device)
+        ixs = [
+            random.randint(0, len(train) - block_size - 1) for _ in range(batch_size)
+        ]
+        xb = torch.tensor([train[i : i + block_size] for i in ixs]).to(device)
+        yb = torch.tensor([train[i + 1 : i + block_size + 1] for i in ixs]).to(device)
         logits = m(xb)
         # calculate loss
         batch, time, channels = logits.shape
