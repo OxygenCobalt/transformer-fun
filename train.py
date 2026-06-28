@@ -180,8 +180,8 @@ for epoch in range(start_epoch, epochs):
 # my code: i want to generate tokens forever
 while True:
     prompt = input("prompt: ")
+    print(prompt, end="", flush=True)
     idx = torch.tensor([tokenizer.forward(prompt)], dtype=torch.long).to(device)
-    print(idx.shape)
     # crop to context window (block size)
     # this is why all models are fixed-context
     # oh this is why models can stream token by token
@@ -190,9 +190,9 @@ while True:
         logits = logits[:, -1, :]  # (B, C): last time step
         probs = F.softmax(logits, dim=-1)  # (B, C)
         idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
-        s = tokenizer.one(idx_next[0])
+        s = tokenizer.backward_one(idx_next[0])
         if s is None:
             break
+        idx = torch.cat((idx, idx_next), dim=1)
         print(s, end="", flush=True)
     print("--end--")
-    # idx = torch.cat((idx, idx_next), dim=1)

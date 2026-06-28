@@ -39,30 +39,22 @@ class BPE:
         tokens.append(TERMINATOR)
         return tokens
 
-    def backward(self, tokens) -> str:
+    def backward_str(self, tokens) -> str:
         utf = []
         for tok in tokens:
-            if tok == TERMINATOR:
+            b = self.backward_utf(tok)
+            if b is None:
                 break
-            expanded = [tok]
-            dirty = True
-            while dirty:
-                dirty = False
-                new_expanded = []
-                for tok in expanded:
-                    insane_int_conversion = int(tok)
-                    if insane_int_conversion in self.token_to_pair:
-                        a, b = self.token_to_pair[insane_int_conversion]
-                        new_expanded.append(a)
-                        new_expanded.append(b)
-                        dirty = True
-                    else:
-                        new_expanded.append(insane_int_conversion)
-                expanded = new_expanded
-            utf += expanded
+            utf += b
         return bytes(utf).decode("utf-8", "replace")
 
-    def one(self, token) -> str | None:
+    def backward_one(self, token) -> str | None:
+        b = self.backward_utf(token)
+        if b is None:
+            return None
+        return bytes(b).decode("utf-8", "replace")
+
+    def backward_utf(self, token) -> list[int] | None:
         if token == TERMINATOR:
             return None
         expanded = [token]
@@ -80,7 +72,7 @@ class BPE:
                 else:
                     new_expanded.append(insane_int_conversion)
             expanded = new_expanded
-        return bytes(expanded).decode("utf-8", "replace")
+        return expanded
 
     def load(self, file) -> bool:
         try:
@@ -93,7 +85,6 @@ class BPE:
             return False
         self.vocab = dat["vocab"]
         self.pairs = dat["pairs"]
-        print(len(self.pairs))
         self.token_to_pair = dict(
             map(lambda t: (t[0] + BASE_VOCAB_SIZE + 1, t[1]), enumerate(self.pairs))
         )
