@@ -24,6 +24,11 @@ class BPE:
         )
 
     def forward(self, doc):
+        tokens = self.forward_continue(doc)
+        tokens.append(TERMINATOR)
+        return tokens
+
+    def forward_continue(self, doc):
         tokens = []
         utf = list(doc.encode("utf-8"))
         for byte in utf:
@@ -36,7 +41,6 @@ class BPE:
                     tokens.pop()
                 else:
                     break
-        tokens.append(TERMINATOR)
         return tokens
 
     def backward_str(self, tokens) -> str:
