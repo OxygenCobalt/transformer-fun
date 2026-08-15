@@ -19,18 +19,7 @@ fn train_native(py: Python<'_>, docs: Vec<String>, vocab: usize) -> PyResult<Vec
     let mut tokenized_docs: Vec<Vec<Token>> = docs
         .iter()
         .filter(|s| !s.is_empty())
-        .map(|s| {
-            s.bytes()
-                // .enumerate()
-                // .map(|(i, b)| TokenNode {
-                //     token: b.into(),
-                //     prev: if i > 0 { Some(i - 1) } else { None },
-                //     next: if i < s.len() - 1 { Some(i + 1) } else { None },
-                //     alive: (),
-                // })
-                .map(|b| b.into())
-                .collect()
-        })
+        .map(|s| s.bytes().map(|b| b.into()).collect())
         .collect();
     let dist_bar = ProgressBar::new(tokenized_docs.len() as u64)
         .with_style(

@@ -1,5 +1,4 @@
 import os
-import pickle
 import random
 
 import pandas
@@ -8,7 +7,6 @@ import tqdm
 from torch.nn import functional as F
 
 from tf.tf import Transformer
-from tok.bigram import Bigram
 from tok.bpe import BPE
 
 # seed
