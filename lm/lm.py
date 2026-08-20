@@ -10,6 +10,7 @@ from tf.tf import Transformer
 from tok.tok import Tokenizer
 import os
 
+BETA = 0.99
 
 class Hyperparams(BaseModel):
     n_layer: int
@@ -57,6 +58,9 @@ class LanguageModel:
     def train(self, corpus: Tensor, tokens: int):
         prog = tqdm.tqdm(total=tokens, desc="train")
         trained_toks = 0
+        ema = 0
+        total_loss = 0
+        losses = 0
         while trained_toks < tokens:
             loss = self.forward_sample(corpus, self.config.hyperparams.batch_size)
             self.optimizer.zero_grad(set_to_none=True)
@@ -64,6 +68,11 @@ class LanguageModel:
             self.optimizer.step()
             trained_toks += self.config.hyperparams.block_size * self.config.hyperparams.batch_size
             prog.n = trained_toks
+            ema = (loss * BETA) + (ema * (1 - BETA))
+            total_loss += loss
+            losses += 1
+            avg_loss = total_loss / losses
+            prog.postfix = f"avg. loss = {avg_loss:.2f} ema = {ema:.2f}"
             prog.refresh()
         prog.close()
 
