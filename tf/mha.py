@@ -6,7 +6,7 @@ from torch.nn import functional as F
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, num_heads: int, emb_size: int, block_size: int, dropout: float, device: str):
+    def __init__(self, num_heads: int, emb_size: int, block_size: int, dropout: float, positions: str, device: str):
         super().__init__()
         # actual size of our heads should be the emb size split across all heads
         # this way the matrix math works cuz we just concat them all together
@@ -20,6 +20,11 @@ class MultiHeadAttention(nn.Module):
         self.proj = nn.Linear(emb_size, emb_size, device=device)
         self.dropout = nn.Dropout(dropout)
         self.dropout_p = dropout
+        self.position_embedding_table = None
+        self.positions = positions
+        if positions == "abs":
+            self.position_embedding_table = nn.Embedding(block_size, emb_size).to(device)
+            self.register_buffer("position", torch.arange(block_size).to(device))
 
     def forward(self, x: Tensor) -> Tensor:
         # pay attention and concat the logits
@@ -40,6 +45,9 @@ class MultiHeadAttention(nn.Module):
         # return out
 
         batch, time, channels = x.shape
+        if self.positions == "abs":
+            pos_emb = self.position_embedding_table(self.position[:time])  # pyright: ignore[reportIndexIssue]
+            x = x + pos_emb
         # naively this is:
         # [batch, time, channels] -> [batch, time, channels * 3]
         # this requires us to reshape that last dimen into [3, num heads, head_size] which is equivalent

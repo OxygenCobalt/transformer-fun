@@ -39,6 +39,7 @@ class LanguageModel:
             config.hyperparams.heads,
             config.hyperparams.block_size,
             config.hyperparams.dropout,
+            config.positions,
             config.device
         )
         self.offsets = torch.arange(0, config.hyperparams.block_size, dtype=torch.long, device=config.device)
