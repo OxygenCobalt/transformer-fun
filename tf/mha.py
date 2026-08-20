@@ -1,11 +1,12 @@
 import torch
+from torch import Tensor
 import torch.nn as nn
 
 from .head import Head
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, num_heads, emb_size, block_size, dropout, device):
+    def __init__(self, num_heads: int, emb_size: int, block_size: int, dropout: float, device: str):
         super().__init__()
         # actual size of our heads should be the emb size split across all heads
         # this way the matrix math works cuz we just concat them all together
@@ -22,7 +23,7 @@ class MultiHeadAttention(nn.Module):
         self.proj = nn.Linear(emb_size, emb_size)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         # pay attention and concat the logits
         out = torch.cat([h(x) for h in self.heads], dim=-1)
         # dropout and funny proj thing

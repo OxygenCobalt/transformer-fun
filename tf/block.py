@@ -1,4 +1,4 @@
-import torch
+from torch import Tensor
 import torch.nn as nn
 
 from .ff import FeedForward
@@ -6,7 +6,7 @@ from .mha import MultiHeadAttention
 
 
 class Block(nn.Module):
-    def __init__(self, num_heads, emb_size, block_size, dropout, device):
+    def __init__(self, num_heads: int, emb_size: int, block_size: int, dropout: float, device: str):
         super().__init__()
         # attention
         self.sa = MultiHeadAttention(num_heads, emb_size, block_size, dropout, device)
@@ -16,7 +16,7 @@ class Block(nn.Module):
         self.ln1 = nn.LayerNorm(emb_size)
         self.ln2 = nn.LayerNorm(emb_size)
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         # skip connections! we add here but proj inside the layers actually
         # so we preserve the pre-activation and then add that to the projected output,
         # which helps with deep learning
