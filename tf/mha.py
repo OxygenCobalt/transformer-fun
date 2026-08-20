@@ -42,7 +42,7 @@ class MultiHeadAttention(nn.Module):
         batch, time, channels = x.shape
         # naively this is:
         # [batch, time, channels] -> [batch, time, channels * 3]
-        # this requires us to explit that last dimen into [3, num heads, head_size] which is ==
+        # this requires us to reshape that last dimen into [3, num heads, head_size] which is equivalent
         qkv = self.qkv(x).reshape(
             batch,
             time,
@@ -51,6 +51,10 @@ class MultiHeadAttention(nn.Module):
             self.head_size,
         )
 
+        # split fused projection into q/k/v
+        # sdpa wants [batch, head_size, time, num_heads]
+        # but we have [batch, time, head_size, num_heads]
+        # so we have to re-arrange accordingly for sdpa to work
         q, k, v = qkv.permute(2, 0, 3, 1, 4).unbind(dim=0)
 
         out = F.scaled_dot_product_attention(
@@ -61,7 +65,9 @@ class MultiHeadAttention(nn.Module):
             dropout_p=self.dropout_p if self.training else 0.0,
         )
 
-        # [B, H, T, D] -> [B, T, C]
+        # after that the output will also be [batch, head_size, time, num_heads] so we have
+        # to both transpose this back to what we want [batch, time, head_size, num_heads] and
+        # then shape it into our final projected logits
         out = out.transpose(1, 2).contiguous()
         out = out.reshape(batch, time, channels)
 
