@@ -81,7 +81,7 @@ config = Config(
         dropout = 0.2,
     ),
     tokenizer = tokenizer,
-    positions = "abs",
+    positions = "rope",
     device = device
 )
 

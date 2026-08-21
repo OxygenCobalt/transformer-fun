@@ -4,6 +4,7 @@ import torch.nn as nn
 
 from torch.nn import functional as F
 
+THETA_BASE = 10_000
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads: int, emb_size: int, block_size: int, dropout: float, positions: str, device: str):
@@ -23,27 +24,16 @@ class MultiHeadAttention(nn.Module):
         self.position_embedding_table = None
         self.positions = positions
         if positions == "abs":
-            self.position_embedding_table = nn.Embedding(block_size, emb_size).to(device)
-            self.register_buffer("position", torch.arange(block_size).to(device))
+            self.position_embedding_table = nn.Embedding(block_size, emb_size, device=device)
+            self.register_buffer("position", torch.arange(block_size, device=device))
+        elif positions == "rope":
+            i = torch.arange(self.head_size // 2, device=device)
+            theta = THETA_BASE ** (-2 * i / self.head_size)
+            pos = torch.arange(block_size, device=device)
+            angles = pos[:, None] * theta[None, :]
+            self.register_buffer("angles", angles)
 
     def forward(self, x: Tensor) -> Tensor:
-        # pay attention and concat the logits
-        # batch, time, channels = x.shape
-        # qkv = self.qkv(x).reshape(
-        #     batch,
-        #     time,
-        #     3,
-        #     self.num_heads,
-        #     self.head_size,
-        # )
-        # q, k, v = qkv.permute(2, 0, 3, 1, 4).unbind(dim=0)
-        # out = F.scaled_dot_product_attention(q, k, v, is_causal=True, dropout_p=self.dropout_p if self.training else 0.0)
-        # out = out.transpose(1, 2).contiguous()
-        # out = out.reshape(batch, time, channels)
-        # # dropout and funny proj thing
-        # out = self.dropout(self.proj(out))
-        # return out
-
         batch, time, channels = x.shape
         if self.positions == "abs":
             pos_emb = self.position_embedding_table(self.position[:time])  # pyright: ignore[reportIndexIssue]
@@ -58,6 +48,36 @@ class MultiHeadAttention(nn.Module):
             self.num_heads,
             self.head_size,
         )
+
+        if self.positions == "rope":
+            # rope is weird, effectively rather than boosting things by arbitrary
+            # absolute positions so that the model learns positions in it's kqv
+            # representations, instead we can instead force oscillators into each
+            # pair within the kqv as well. these oscillators (ranging from very fast
+            # oscillators in context and very slow ones that change little) provide
+            # visual information, especially as at the dot product their angles cancel
+            # out and thus yield roughly something like a relative position delta
+            # (this is my understanding so far, may change?)
+            #
+            # by doing this we guide the model towards wanting to actually deal with
+            # how to represent positions within the k/q representations it decides on
+            #
+            # slice fused qkvs down to first k/q and then also even/odd for a and b
+            # this forms the pairs
+            a = qkv[:, :, :2, :, 0::2]
+            b = qkv[:, :, :2, :, 1::2]
+            # get oscillators, we have to project them across the time axis
+            # and then also across the whole head size in order to apply 1
+            # oscillator per pair (i think)
+            cos = torch.cos(self.angles[:time])[None, :, None, None, :]
+            sin = torch.sin(self.angles[:time])[None, :, None, None, :]   # each (seq_len, head_dim/2)
+            # rotate pairs across the curve from their assigned oscillator
+            a_rot = a * cos - b * sin
+            b_rot = a * sin + b * cos
+            new_qkv = qkv.clone() # in-place assignment for autograd
+            # update w/rotated points back to pos
+            new_qkv[:, :, :2, :, 0::2] = a_rot
+            new_qkv[:, :, :2, :, 1::2] = b_rot
 
         # split fused projection into q/k/v
         # sdpa wants [batch, head_size, time, num_heads]
