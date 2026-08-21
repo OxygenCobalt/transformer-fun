@@ -117,4 +117,4 @@ if not corpuses:
     }
     torch.save(corpuses, corpuses_path)
 
-lm.full_train(corpuses, tokens = 20_000_000, train_tokens = 5_000_000, eval_tokens = 500_00, checkpoint_path = "./checkpoints")
+lm.full_train(corpuses, tokens = 5_000_000, train_tokens = 500_000, eval_tokens = 50_000, checkpoint_path = "./checkpoints")

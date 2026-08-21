@@ -113,6 +113,11 @@ class LanguageModel:
                 os.path.join(checkpoint_path, "init.pt"),
             )
 
+        losses = self.eval_all(corpuses, eval_tokens)
+        print("LOSSES:")
+        for split, loss in losses.items():
+            print(split, "=", loss)
+
         trained_toks = 0
         while trained_toks < tokens:
             self.train(corpuses["train"], train_tokens)
@@ -121,3 +126,11 @@ class LanguageModel:
             for split, loss in losses.items():
                 print(split, "=", loss)
             trained_toks += train_tokens
+            torch.save(
+                {"model": self.m.state_dict(), "optimizer": self.optimizer.state_dict(), "trained_toks": trained_toks},
+                os.path.join(checkpoint_path, f"{trained_toks}.pt"),
+            )
+            torch.save(
+                {"model": self.m.state_dict(), "optimizer": self.optimizer.state_dict(), "trained_toks": trained_toks},
+                os.path.join(checkpoint_path, "latest.pt"),
+            )
