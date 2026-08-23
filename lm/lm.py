@@ -72,7 +72,7 @@ class LanguageModel:
             self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
             self.optimizer.step()
-            trained_toks += self.config.hyperparams.block_size * self.config.hyperparams.batch_size
+            trained_toks += (seq_len or self.config.hyperparams.block_size) * self.config.hyperparams.batch_size
             prog.n = trained_toks
             ema = (loss * BETA) + (ema * (1 - BETA))
             total_loss += loss
@@ -90,7 +90,7 @@ class LanguageModel:
         while trained_toks <= tokens:
             total_loss += self.forward_sample(corpus, self.config.hyperparams.batch_size, seq_len, eval_offset).item()
             losses += 1
-            trained_toks += self.config.hyperparams.block_size * self.config.hyperparams.batch_size
+            trained_toks += (seq_len or self.config.hyperparams.block_size) * self.config.hyperparams.batch_size
             prog.n = trained_toks
             prog.refresh()
         prog.close()
