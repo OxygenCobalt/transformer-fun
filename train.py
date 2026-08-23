@@ -32,7 +32,7 @@ validation_data = pandas.concat(
         pandas.read_parquet("./wikitext/wikitext-103-raw-v1/validation-00000-of-00001.parquet"),
     ]
 )
-validation_docs = [text for text in test_data["text"]]
+validation_docs = [text for text in validation_data["text"]]
 
 # hyperparams
 device = "cuda" if torch.cuda.is_available() else "cpu"
