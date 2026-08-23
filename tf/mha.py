@@ -33,10 +33,10 @@ class MultiHeadAttention(nn.Module):
             angles = pos[:, None] * theta[None, :]
             self.register_buffer("angles", angles)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, eval_offset: int) -> Tensor:
         batch, time, channels = x.shape
         if self.positions == "abs":
-            pos_emb = self.position_embedding_table(self.position[:time])  # pyright: ignore[reportIndexIssue]
+            pos_emb = self.position_embedding_table(self.position[eval_offset:eval_offset + time])  # pyright: ignore[reportIndexIssue]
             x = x + pos_emb
         # naively this is:
         # [batch, time, channels] -> [batch, time, channels * 3]
@@ -69,8 +69,8 @@ class MultiHeadAttention(nn.Module):
             # get oscillators, we have to project them across the time axis
             # and then also across the whole head size in order to apply 1
             # oscillator per pair (i think)
-            cos = torch.cos(self.angles[:time])[None, :, None, None, :]
-            sin = torch.sin(self.angles[:time])[None, :, None, None, :]   # each (seq_len, head_dim/2)
+            cos = torch.cos(self.angles[eval_offset:eval_offset + time])[None, :, None, None, :]
+            sin = torch.sin(self.angles[eval_offset:eval_offset + time])[None, :, None, None, :]   # each (seq_len, head_dim/2)
             # rotate pairs across the curve from their assigned oscillator
             a_rot = a * cos - b * sin
             b_rot = a * sin + b * cos
@@ -78,6 +78,7 @@ class MultiHeadAttention(nn.Module):
             # update w/rotated points back to pos
             new_qkv[:, :, :2, :, 0::2] = a_rot
             new_qkv[:, :, :2, :, 1::2] = b_rot
+            qkv = new_qkv
 
         # split fused projection into q/k/v
         # sdpa wants [batch, head_size, time, num_heads]

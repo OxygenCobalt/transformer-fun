@@ -16,10 +16,10 @@ class Block(nn.Module):
         self.ln1 = nn.LayerNorm(emb_size)
         self.ln2 = nn.LayerNorm(emb_size)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, eval_offset: int) -> Tensor:
         # skip connections! we add here but proj inside the layers actually
         # so we preserve the pre-activation and then add that to the projected output,
         # which helps with deep learning
-        x = x + self.sa(self.ln1(x))
+        x = x + self.sa(self.ln1(x), eval_offset)
         x = x + self.ff(self.ln2(x))
         return x
