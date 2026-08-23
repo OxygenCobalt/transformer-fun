@@ -7,7 +7,7 @@ import tqdm
 from torch.nn import functional as F
 
 from tok.bpe import BPE
-from lm.lm import LanguageModel, Config, Hyperparams
+from lm.lm import LanguageModel, Config, Hyperparams, Experiments
 
 # seed
 torch.manual_seed(1616)
@@ -82,7 +82,10 @@ config = Config(
     ),
     tokenizer = tokenizer,
     positions = "rope",
-    device = device
+    device = device,
+    experiments = Experiments(
+        eval_offsets=False
+    )
 )
 
 lm = LanguageModel(config)
