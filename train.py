@@ -77,10 +77,12 @@ config = Config(
         # heads = 6,
         # block_size = 256,
         # batch_size = 256,
+        ffn_ratio = 8 / 3,
         learning_rate = 3e-4,
         dropout = 0.2,
     ),
     tokenizer = tokenizer,
+    gating = "swiglu",
     positions = "rope",
     device = device,
     experiments = Experiments(

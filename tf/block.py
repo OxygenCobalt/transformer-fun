@@ -6,12 +6,12 @@ from .mha import MultiHeadAttention
 
 
 class Block(nn.Module):
-    def __init__(self, num_heads: int, emb_size: int, block_size: int, dropout: float, positions: str, device: str):
+    def __init__(self, num_heads: int, emb_size: int, block_size: int, gating: str, ffn_ratio: float, dropout: float, positions: str, device: str):
         super().__init__()
         # attention
         self.sa = MultiHeadAttention(num_heads, emb_size, block_size, dropout, positions, device)
         # ff to analyze
-        self.ff = FeedForward(emb_size, dropout)
+        self.ff = FeedForward(emb_size, gating, ffn_ratio, dropout)
         # layer norms. i understand they help stabilize variance but i dont know why this helps
         self.ln1 = nn.LayerNorm(emb_size)
         self.ln2 = nn.LayerNorm(emb_size)

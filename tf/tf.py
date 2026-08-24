@@ -8,7 +8,8 @@ from .block import Block
 
 class Transformer(nn.Module):
     def __init__(
-        self, n_layer: int, vocab_size: int, embed_size: int, heads: int, block_size: int, dropout: float, positions: str, device: str
+        self, n_layer: int, vocab_size: int, embed_size: int, heads: int, block_size: int,
+        gating: str, ffn_ratio: float, dropout: float, positions: str, device: str
     ):
         super().__init__()
         # basically the vocab logits here are the probability of the next token
@@ -16,7 +17,7 @@ class Transformer(nn.Module):
         self.token_embedding_table = nn.Embedding(vocab_size, embed_size).to(device)
         self.blocks = nn.ModuleList(
             [
-                Block(heads, embed_size, block_size, dropout, positions, device)
+                Block(heads, embed_size, block_size, gating, ffn_ratio, dropout, positions, device)
                 for _ in range(n_layer)
             ]
         )

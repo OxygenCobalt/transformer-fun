@@ -18,6 +18,7 @@ class Hyperparams(BaseModel):
     embed_size: int
     heads: int
     block_size: int
+    ffn_ratio: float
     dropout: float
     learning_rate: float
     batch_size: int
@@ -32,6 +33,7 @@ class Config(BaseModel):
     tokenizer: Tokenizer
     experiments: Experiments
     positions: str
+    gating: str
     device: str
 
 class LanguageModel:
@@ -43,6 +45,8 @@ class LanguageModel:
             config.hyperparams.embed_size,
             config.hyperparams.heads,
             config.hyperparams.block_size,
+            config.gating,
+            config.hyperparams.ffn_ratio,
             config.hyperparams.dropout,
             config.positions,
             config.device
