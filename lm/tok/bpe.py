@@ -1,7 +1,7 @@
 import pickle
 
 import bpe_native
-from tok.tok import Tokenizer
+from .tok import Tokenizer
 
 
 class BPE(Tokenizer):
@@ -28,9 +28,11 @@ class BPE(Tokenizer):
     def tokenize(self, docs: list[str]) -> list[int]:
         return self._require_codec().encode(docs)
 
-    def load(self, file) -> bool:
+    def load(self, path: str) -> bool:
         try:
-            dat = pickle.Unpickler(file).load()
+            dat = None
+            with open(path, "rb") as file:
+                dat = pickle.Unpickler(file).load()
         except Exception as e:
             print("failed to load bpe tokenizer file: ", e)
             return False
@@ -38,9 +40,12 @@ class BPE(Tokenizer):
             print("vocab diverges")
             return False
         self._set_pairs(dat["pairs"])
-
         return True
 
-    def save(self, file) -> None:
-        dat = {"vocab": self._vocab_size, "pairs": self._pairs}
-        pickle.Pickler(file).dump(dat)
+    def save(self, path: str) -> None:
+        with open(path, "xb") as file:
+            dat = {"vocab": self._vocab_size, "pairs": self._pairs}
+            pickle.Pickler(file).dump(dat)
+
+    def id(self) -> str:
+        return "bpe"

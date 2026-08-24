@@ -1,5 +1,3 @@
-from pydantic import BaseModel, ConfigDict
-from torch import nn
 from torch import Tensor
 from datetime import datetime
 
@@ -7,50 +5,16 @@ import torch
 import tqdm
 from torch.nn import functional as F
 
-from tf.tf import Transformer
-from tok.tok import Tokenizer
+from .tf.tf import Transformer
+from .config import Config
 import os
 
 BETA = 0.99
 
-class Hyperparams(BaseModel):
-    n_layer: int
-    embed_size: int
-    heads: int
-    block_size: int
-    ffn_ratio: float
-    dropout: float
-    learning_rate: float
-    batch_size: int
-
-class Experiments(BaseModel):
-    eval_offsets: bool
-
-class Config(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    hyperparams: Hyperparams
-    tokenizer: Tokenizer
-    experiments: Experiments
-    positions: str
-    gating: str
-    device: str
-
 class LanguageModel:
     def __init__(self, config: Config):
         self.config = config
-        self.m = Transformer(
-            config.hyperparams.n_layer,
-            config.tokenizer.vocab(),
-            config.hyperparams.embed_size,
-            config.hyperparams.heads,
-            config.hyperparams.block_size,
-            config.gating,
-            config.hyperparams.ffn_ratio,
-            config.hyperparams.dropout,
-            config.positions,
-            config.device
-        )
+        self.m = Transformer(config)
         self.offsets = torch.arange(0, config.hyperparams.block_size, dtype=torch.long, device=config.device)
         self.optimizer = torch.optim.AdamW(self.m.parameters(), lr=config.hyperparams.learning_rate)
 

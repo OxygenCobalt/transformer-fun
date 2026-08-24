@@ -15,9 +15,13 @@ class Tokenizer(ABC):
         pass
 
     @abstractmethod
-    def load(self, file) -> bool:
+    def load(self, path: str) -> bool:
         pass
 
     @abstractmethod
-    def save(self, file) -> None:
+    def save(self, path: str) -> None:
+        pass
+
+    @abstractmethod
+    def id(self) -> str:
         pass

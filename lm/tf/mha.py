@@ -1,43 +1,38 @@
 import torch
 from torch import Tensor
 import torch.nn as nn
+from lm.config import Config
 
 from torch.nn import functional as F
 
 THETA_BASE = 10_000
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, num_heads: int, emb_size: int, block_size: int, dropout: float, positions: str, device: str):
+    def __init__(self, config: Config):
         super().__init__()
         # actual size of our heads should be the emb size split across all heads
         # this way the matrix math works cuz we just concat them all together
-        self.head_size = emb_size // num_heads
-        self.emb_size = emb_size
-        self.num_heads = num_heads
+        self.head_size = config.hyperparams.embed_size // config.hyperparams.heads
+        self.embed_size = config.hyperparams.embed_size
+        self.heads = config.hyperparams.heads
         # now we just do a bunch of heads honestly so we can pay attention to many different things
-        self.qkv = nn.Linear(emb_size, 3 * emb_size, bias=False, device=device)
+        self.qkv = nn.Linear(config.hyperparams.embed_size, 3 * config.hyperparams.embed_size, bias=False, device=config.device)
         # proj layer for residual connections
         # heads output is emb size so this is just lateral projection
-        self.proj = nn.Linear(emb_size, emb_size, device=device)
-        self.dropout = nn.Dropout(dropout)
-        self.dropout_p = dropout
+        self.proj = nn.Linear(config.hyperparams.embed_size, config.hyperparams.embed_size, device=config.device)
+        self.dropout = nn.Dropout(config.hyperparams.dropout)
+        self.dropout_p = config.hyperparams.dropout
+        self.positions = config.positions
         self.position_embedding_table = None
-        self.positions = positions
-        if positions == "abs":
-            self.position_embedding_table = nn.Embedding(block_size, emb_size, device=device)
-            self.register_buffer("position", torch.arange(block_size, device=device))
-        elif positions == "rope":
-            i = torch.arange(self.head_size // 2, device=device)
+        if self.positions == "rope":
+            i = torch.arange(self.head_size // 2, device=config.device)
             theta = THETA_BASE ** (-2 * i / self.head_size)
-            pos = torch.arange(block_size, device=device)
+            pos = torch.arange(config.hyperparams.block_size, device=config.device)
             angles = pos[:, None] * theta[None, :]
             self.register_buffer("angles", angles)
 
     def forward(self, x: Tensor, eval_offset: int) -> Tensor:
         batch, time, channels = x.shape
-        if self.positions == "abs":
-            pos_emb = self.position_embedding_table(self.position[eval_offset:eval_offset + time])  # pyright: ignore[reportIndexIssue]
-            x = x + pos_emb
         # naively this is:
         # [batch, time, channels] -> [batch, time, channels * 3]
         # this requires us to reshape that last dimen into [3, num heads, head_size] which is equivalent
@@ -45,7 +40,7 @@ class MultiHeadAttention(nn.Module):
             batch,
             time,
             3,
-            self.num_heads,
+            self.heads,
             self.head_size,
         )
 
@@ -86,23 +81,7 @@ class MultiHeadAttention(nn.Module):
         # so we have to re-arrange accordingly for sdpa to work
         q, k, v = qkv.permute(2, 0, 3, 1, 4).unbind(dim=0)
 
-        out = F.scaled_dot_product_attention(
-            q,
-            k,
-            v,
-            is_causal=True,
-            dropout_p=self.dropout_p if self.training else 0.0,
-        )
-
-        # after that the output will also be [batch, head_size, time, num_heads] so we have
-        # to both transpose this back to what we want [batch, time, head_size, num_heads] and
-        # then shape it into our final projected logits
-        out = out.transpose(1, 2).contiguous()
-        out = out.reshape(batch, time, channels)
-
-        return self.dropout(self.proj(out))
-
-
+        # do our sdpa, pseudocode below:
         # x is [batch, time, emb_size]
         # _, time, _ = x.shape
         # Dot them (rearrange k) so that we know what concepts should be paid
@@ -123,3 +102,18 @@ class MultiHeadAttention(nn.Module):
         # out = wei @ v
         # out is dropped out in MHA
         # return out
+        out = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            is_causal=True,
+            dropout_p=self.dropout_p if self.training else 0.0,
+        )
+
+        # after that the output will also be [batch, head_size, time, num_heads] so we have
+        # to both transpose this back to what we want [batch, time, head_size, num_heads] and
+        # then shape it into our final projected logits
+        out = out.transpose(1, 2).contiguous()
+        out = out.reshape(batch, time, channels)
+
+        return self.dropout(self.proj(out))
