@@ -108,6 +108,7 @@ class MultiHeadAttention(nn.Module):
             v,
             is_causal=True,
             dropout_p=self.dropout_p if self.training else 0.0,
+            enable_gqa=True
         )
 
         # after that the output will also be [batch, head_size, time, num_heads] so we have

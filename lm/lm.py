@@ -36,7 +36,8 @@ class LanguageModel:
         total_loss = 0
         losses = 0
         while trained_toks <= tokens:
-            loss = self.forward_sample(corpus, self.config.hyperparams.batch_size, seq_len=seq_len)
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                loss = self.forward_sample(corpus, self.config.hyperparams.batch_size, seq_len=seq_len)
             self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
             self.optimizer.step()
@@ -56,7 +57,8 @@ class LanguageModel:
         total_loss = 0
         losses = 0
         while trained_toks <= tokens:
-            total_loss += self.forward_sample(corpus, self.config.hyperparams.batch_size, seq_len, eval_offset).item()
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                total_loss += self.forward_sample(corpus, self.config.hyperparams.batch_size, seq_len, eval_offset).item()
             losses += 1
             trained_toks += (seq_len or self.config.hyperparams.block_size) * self.config.hyperparams.batch_size
             prog.n = trained_toks
@@ -112,13 +114,13 @@ class LanguageModel:
                 self.train(corpuses["train"], train_tokens, seq_len=self.config.hyperparams.block_size // 2)
             else:
                 self.train(corpuses["train"], train_tokens)
+            trained_toks += train_tokens
 
             losses = self.full_eval(corpuses, eval_tokens)
             with open(data_path, "a") as file:
                 for split, exp in losses.items():
                     for lbl, loss in exp.items():
                         print(f"{trained_toks},{lbl},{split},{loss}", file=file)
-            trained_toks += train_tokens
             torch.save(
                 {"model": self.m.state_dict(), "optimizer": self.optimizer.state_dict(), "trained_toks": trained_toks, "now": now.timestamp()},
                 os.path.join(checkpoint_path, f"{trained_toks}.pt"),

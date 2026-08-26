@@ -17,16 +17,16 @@ random.seed(1616)
 tokenizer = BPE(512)
 config = Config(
     hyperparams = Hyperparams(
-        n_layer = 2,
-        embed_size = 64,
-        heads = 4,
-        block_size = 64,
-        batch_size = 8,
-        # n_layer = 6,
-        # embed_size = 384,
-        # heads = 6,
-        # block_size = 256,
-        # batch_size = 256,
+        # n_layer = 2,
+        # embed_size = 64,
+        # heads = 4,
+        # block_size = 64,
+        # batch_size = 8,
+        n_layer = 12,
+        embed_size = 768,
+        heads = 12,
+        block_size = 512,
+        batch_size = 64,
         ffn_ratio = 8 / 3,
         learning_rate = 3e-4,
         dropout = 0.2,
@@ -67,4 +67,4 @@ if not corpuses:
     torch.save(corpuses, corpuses_path)
 
 lm = LanguageModel(config)
-lm.full_train(corpuses, tokens = 5_000_000, train_tokens = 500_000, eval_tokens = 50_000, checkpoint_path = checkpoint_dir)
+lm.full_train(corpuses, tokens = 500_000_000, train_tokens = 50_000_000, eval_tokens = 5_000_000, checkpoint_path = checkpoint_dir)
