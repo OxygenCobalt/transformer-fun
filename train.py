@@ -24,7 +24,8 @@ config = Config(
         # batch_size = 8,
         n_layer = 12,
         embed_size = 768,
-        heads = 12,
+        kv_heads = 3,
+        q_heads = 12,
         block_size = 512,
         batch_size = 64,
         ffn_ratio = 8 / 3,
@@ -68,3 +69,6 @@ if not corpuses:
 
 lm = LanguageModel(config)
 lm.full_train(corpuses, tokens = 500_000_000, train_tokens = 50_000_000, eval_tokens = 5_000_000, checkpoint_path = checkpoint_dir)
+
+prompt = input("prompt:")
+lm.complete(prompt)

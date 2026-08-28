@@ -8,7 +8,8 @@ class Experiments(BaseModel):
 class Hyperparams(BaseModel):
     n_layer: int
     embed_size: int
-    heads: int
+    q_heads: int
+    kv_heads: int
     block_size: int
     ffn_ratio: float
     dropout: float
