@@ -98,7 +98,6 @@ class MultiHeadAttention(nn.Module):
         # after that the output will also be [batch, head_size, time, num_heads] so we have
         # to both transpose this back to what we want [batch, time, head_size, num_heads] and
         # then shape it into our final projected logits
-        out = out.transpose(1, 2).contiguous()
-        out = out.reshape(batch, time, channels)
+        out = out.transpose(1, 2).reshape(batch, time, channels)
 
         return self.dropout(self.proj(out))
