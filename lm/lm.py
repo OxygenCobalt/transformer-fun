@@ -35,7 +35,7 @@ class LanguageModel:
         ema = 0
         total_loss = 0
         losses = 0
-        while trained_toks <= tokens:
+        while trained_toks < tokens:
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 loss = self.forward_sample(corpus, self.config.hyperparams.batch_size, seq_len=seq_len)
             self.optimizer.zero_grad(set_to_none=True)
@@ -56,7 +56,7 @@ class LanguageModel:
         trained_toks = 0
         total_loss = 0
         losses = 0
-        while trained_toks <= tokens:
+        while trained_toks < tokens:
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 total_loss += self.forward_sample(corpus, self.config.hyperparams.batch_size, seq_len, eval_offset).item()
             losses += 1
@@ -99,17 +99,22 @@ class LanguageModel:
                 os.path.join(checkpoint_path, "latest.pt"),
             )
 
-        losses = self.full_eval(corpuses, eval_tokens)
-        data_path = f"train_{now}.csv"
-        if not os.path.exists(data_path):
-            with open(data_path, "xt") as file:
-                print("trained_tokens,eval,split,loss", file=file)
-        with open(data_path, "wt") as file:
-            for split, exp in losses.items():
-                for lbl, loss in exp.items():
-                    print(f"{trained_toks},{lbl},{split},{loss}", file=file)
+        if trained_toks >= tokens:
+            print("already trained")
+            return
 
-        while trained_toks <= tokens:
+        data_path = f"train_{now}.csv"
+        if trained_toks == 0:
+            losses = self.full_eval(corpuses, eval_tokens)
+            if not os.path.exists(data_path):
+                with open(data_path, "xt") as file:
+                    print("trained_tokens,eval,split,loss", file=file)
+            with open(data_path, "wt") as file:
+                for split, exp in losses.items():
+                    for lbl, loss in exp.items():
+                        print(f"{trained_toks},{lbl},{split},{loss}", file=file)
+
+        while trained_toks < tokens:
             if self.config.experiments.eval_offsets:
                 self.train(corpuses["train"], train_tokens, seq_len=self.config.hyperparams.block_size // 2)
             else:
