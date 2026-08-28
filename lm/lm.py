@@ -129,3 +129,22 @@ class LanguageModel:
                 {"model": self.m.state_dict(), "optimizer": self.optimizer.state_dict(), "trained_toks": trained_toks, "now": now.timestamp()},
                 os.path.join(checkpoint_path, "latest.pt"),
             )
+
+    def complete(self, prompt: str):
+        # my code: i want to generate tokens forever
+        print(prompt, end="", flush=True)
+        idx = torch.tensor([self.config.tokenizer.tokenize([prompt])], dtype=torch.long, device=self.config.device)
+        # crop to context window (block size)
+        # this is why all models are fixed-context
+        # oh this is why models can stream token by token
+        while True:
+            logits = self.m(idx[:, -self.config.hyperparams.block_size:], eval_offset=0)
+            logits = logits[:, -1, :]  # (B, C): last time step
+            probs = F.softmax(logits, dim=-1)  # (B, C)
+            idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
+            s = self.config.tokenizer.stringify_one(int(idx_next[0]))
+            if s is None:
+                break
+            idx = torch.cat((idx, idx_next), dim=1)
+            print(s, end="", flush=True)
+        print("--end--")
