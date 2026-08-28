@@ -15,6 +15,10 @@ class Tokenizer(ABC):
         pass
 
     @abstractmethod
+    def stringify_one(self, token: int) -> str | None:
+        pass
+
+    @abstractmethod
     def load(self, path: str) -> bool:
         pass
 

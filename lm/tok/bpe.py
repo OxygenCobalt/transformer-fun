@@ -3,6 +3,9 @@ import pickle
 import bpe_native
 from .tok import Tokenizer
 
+BASE_VOCAB_SIZE = 256
+TERMINATOR = 256
+
 
 class BPE(Tokenizer):
     def __init__(self, vocab: int):
@@ -12,6 +15,10 @@ class BPE(Tokenizer):
     def _set_pairs(self, pairs):
         codec = bpe_native._BpeCodec(pairs)
         self._pairs = pairs
+        self._token_to_pair = {
+            token: pair
+            for token, pair in enumerate(pairs, start=BASE_VOCAB_SIZE + 1)
+        }
         self._codec = codec
 
     def _require_codec(self):
@@ -27,6 +34,23 @@ class BPE(Tokenizer):
 
     def tokenize(self, docs: list[str]) -> list[int]:
         return self._require_codec().encode(docs)
+
+    def stringify_one(self, token: int) -> str | None:
+        self._require_codec()
+        if token == TERMINATOR:
+            return None
+
+        expanded = [token]
+        utf = []
+        while expanded:
+            current = int(expanded.pop())
+            pair = self._token_to_pair.get(current)
+            if pair is None:
+                utf.append(current)
+            else:
+                left, right = pair
+                expanded.extend((right, left))
+        return bytes(utf).decode("utf-8", "replace")
 
     def load(self, path: str) -> bool:
         try:
