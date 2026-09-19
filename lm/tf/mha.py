@@ -21,7 +21,7 @@ class MultiHeadAttention(nn.Module):
         # now we just do a bunch of heads honestly so we can pay attention to many different things
         self.qkv = nn.Linear(
             config.hyperparams.embed_size,
-             self.q_size + self.kv_size + self.kv_size,
+            self.q_size + self.kv_size + self.kv_size,
             bias=False,
             device=config.device
         )

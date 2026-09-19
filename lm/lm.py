@@ -16,7 +16,22 @@ class LanguageModel:
         self.config = config
         self.m = Transformer(config)
         self.offsets = torch.arange(0, config.hyperparams.block_size, dtype=torch.long, device=config.device)
-        self.optimizer = torch.optim.AdamW(self.m.parameters(), lr=config.hyperparams.learning_rate)
+        if config.optimizer == "adamw":
+            self.optimizers = [torch.optim.AdamW(self.m.parameters(), **config.optimizer_hyperparams["adamw"])]
+        elif config.optimizer == "muon":
+            # muon only works on 2d matrices, so we separate things like biases, norms, embeddings
+            # into a separate adam optimizer
+            muon_params = []
+            adamw_params = []
+            for name, param in self.m.named_parameters():
+                if name.startswith("blocks.") and param.ndim == 2:
+                    muon_params.append(param)
+                else:
+                    adamw_params.append(param)
+            self.optimizers = [
+                torch.optim.Muon(muon_params, **config.optimizer_hyperparams["muon"]),
+                torch.optim.AdamW(adamw_params, **config.optimizer_hyperparams["adamw"])
+            ]
 
     def forward_sample(self, corpus: Tensor, batch_size: int, seq_len: int | None = None, eval_offset: int = 0):
         ixs = torch.randint(0, len(corpus) - (seq_len or self.config.hyperparams.block_size) - 1, (batch_size,), device=self.config.device)
@@ -38,9 +53,11 @@ class LanguageModel:
         while trained_toks < tokens:
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 loss = self.forward_sample(corpus, self.config.hyperparams.batch_size, seq_len=seq_len)
-            self.optimizer.zero_grad(set_to_none=True)
+            for optimizer in self.optimizers:
+                optimizer.zero_grad(set_to_none=True)
             loss.backward()
-            self.optimizer.step()
+            for optimizer in self.optimizers:
+                optimizer.step()
             trained_toks += (seq_len or self.config.hyperparams.block_size) * self.config.hyperparams.batch_size
             prog.n = trained_toks
             ema = (loss * BETA) + (ema * (1 - BETA))
@@ -76,26 +93,28 @@ class LanguageModel:
             losses[split] = exps
         return losses
 
-    def full_train(self, corpuses: dict[str, Tensor], tokens: int, train_tokens: int, eval_tokens: int, checkpoint_path: str):
+    def full_train(self, corpuses: dict[str, Tensor], tokens: int, train_tokens: int, eval_tokens: int, exp_path: str):
         now = datetime.now()
+        checkpoint_path = exp_path + "/checkpoints"
         print("begin full training loop")
         trained_toks = 0
         latest_ckpt = os.path.join(checkpoint_path, "latest.pt")
         if os.path.exists(latest_ckpt):
             ckpt = torch.load(latest_ckpt, map_location=self.config.device, weights_only=True)
             self.m.load_state_dict(ckpt["model"])
-            self.optimizer.load_state_dict(ckpt["optimizer"])
+            for optimizer, state in zip(self.optimizers, ckpt["optimizers"]):
+                optimizer.load_state_dict(state)
             trained_toks = ckpt["trained_toks"] + 1
             now = datetime.fromtimestamp(ckpt["now"])
             print(f"resumed from {eval_tokens} tokens")
         else:
             print("saving initial model state")
             torch.save(
-                {"model": self.m.state_dict(), "optimizer": self.optimizer.state_dict(), "trained_toks": 0, "now": now.timestamp()},
+                {"model": self.m.state_dict(), "optimizers": [optimizer.state_dict() for optimizer in self.optimizers], "trained_toks": 0, "now": now.timestamp()},
                 os.path.join(checkpoint_path, "init.pt"),
             )
             torch.save(
-                {"model": self.m.state_dict(), "optimizer": self.optimizer.state_dict(), "trained_toks": 0, "now": now.timestamp()},
+                {"model": self.m.state_dict(), "optimizers": [optimizer.state_dict() for optimizer in self.optimizers], "trained_toks": 0, "now": now.timestamp()},
                 os.path.join(checkpoint_path, "latest.pt"),
             )
 
@@ -103,7 +122,7 @@ class LanguageModel:
             print("already trained")
             return
 
-        data_path = f"train_{now}.csv"
+        data_path = exp_path + f"/train_{now}.csv"
         if trained_toks == 0:
             losses = self.full_eval(corpuses, eval_tokens)
             if not os.path.exists(data_path):
@@ -127,11 +146,11 @@ class LanguageModel:
                     for lbl, loss in exp.items():
                         print(f"{trained_toks},{lbl},{split},{loss}", file=file)
             torch.save(
-                {"model": self.m.state_dict(), "optimizer": self.optimizer.state_dict(), "trained_toks": trained_toks, "now": now.timestamp()},
-                os.path.join(checkpoint_path, f"{trained_toks}.pt"),
+                {"model": self.m.state_dict(), "optimizers": [optimizer.state_dict() for optimizer in self.optimizers], "trained_toks": 0, "now": now.timestamp()},
+                os.path.join(checkpoint_path, "init.pt"),
             )
             torch.save(
-                {"model": self.m.state_dict(), "optimizer": self.optimizer.state_dict(), "trained_toks": trained_toks, "now": now.timestamp()},
+                {"model": self.m.state_dict(), "optimizers": [optimizer.state_dict() for optimizer in self.optimizers], "trained_toks": 0, "now": now.timestamp()},
                 os.path.join(checkpoint_path, "latest.pt"),
             )
 

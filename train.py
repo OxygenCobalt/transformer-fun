@@ -29,10 +29,14 @@ config = Config(
         block_size = 512,
         batch_size = 64,
         ffn_ratio = 8 / 3,
-        learning_rate = 3e-4,
         dropout = 0.2,
     ),
     tokenizer = tokenizer,
+    optimizer = "muon",
+    optimizer_hyperparams={
+        "muon": { "lr": 0.001 },
+        "adamw": { "lr": 3e-4 }
+    },
     gating = "swiglu",
     positions = "rope",
     device = "cuda" if torch.cuda.is_available() else "cpu",
@@ -42,8 +46,6 @@ config = Config(
 )
 print("go:", config)
 
-checkpoint_dir = "checkpoints"
-os.makedirs(checkpoint_dir, exist_ok=True)
 tokenizer_dir = tokenizer.id()
 os.makedirs(tokenizer_dir, exist_ok=True)
 
@@ -67,8 +69,11 @@ if not corpuses:
     corpuses = dataset.prepare(tokenizer, config.device)
     torch.save(corpuses, corpuses_path)
 
+exp_path = "muon3"
+os.makedirs(exp_path + "/checkpoints", exist_ok=True)
+
 lm = LanguageModel(config)
-lm.full_train(corpuses, tokens = 500_000_000, train_tokens = 50_000_000, eval_tokens = 5_000_000, checkpoint_path = checkpoint_dir)
+lm.full_train(corpuses, tokens = 50_000_000, train_tokens = 5_000_000, eval_tokens = 500_000, exp_path = exp_path)
 
 prompt = input("prompt:")
 lm.complete(prompt)

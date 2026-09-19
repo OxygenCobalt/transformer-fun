@@ -13,7 +13,6 @@ class Hyperparams(BaseModel):
     block_size: int
     ffn_ratio: float
     dropout: float
-    learning_rate: float
     batch_size: int
 
 class Config(BaseModel):
@@ -22,6 +21,8 @@ class Config(BaseModel):
     hyperparams: Hyperparams
     tokenizer: Tokenizer
     experiments: Experiments
+    optimizer: str
+    optimizer_hyperparams: dict
     positions: str
     gating: str
     device: str
