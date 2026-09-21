@@ -37,7 +37,7 @@ class LanguageModel:
         ixs = torch.randint(0, len(corpus) - (seq_len or self.config.hyperparams.block_size) - 1, (batch_size,), device=self.config.device)
         xb = corpus[ixs[:, None] + self.offsets[None, :seq_len]]
         yb = corpus[ixs[:, None] + self.offsets[None, :seq_len] + 1]
-        logits = self.m(xb, eval_offset=eval_offset)
+        logits, _ = self.m(xb, None, eval_offset=eval_offset)
         batch, time, channels = logits.shape
         l_logits = logits.view(batch * time, channels)
         l_targets = yb.view(batch * time)
@@ -146,29 +146,36 @@ class LanguageModel:
                     for lbl, loss in exp.items():
                         print(f"{trained_toks},{lbl},{split},{loss}", file=file)
             torch.save(
-                {"model": self.m.state_dict(), "optimizers": [optimizer.state_dict() for optimizer in self.optimizers], "trained_toks": 0, "now": now.timestamp()},
+                {"model": self.m.state_dict(), "optimizers": [optimizer.state_dict() for optimizer in self.optimizers], "trained_toks": trained_toks, "now": now.timestamp()},
                 os.path.join(checkpoint_path, "init.pt"),
             )
             torch.save(
-                {"model": self.m.state_dict(), "optimizers": [optimizer.state_dict() for optimizer in self.optimizers], "trained_toks": 0, "now": now.timestamp()},
+                {"model": self.m.state_dict(), "optimizers": [optimizer.state_dict() for optimizer in self.optimizers], "trained_toks": trained_toks, "now": now.timestamp()},
                 os.path.join(checkpoint_path, "latest.pt"),
             )
 
     def complete(self, prompt: str):
-        # my code: i want to generate tokens forever
-        print(prompt, end="", flush=True)
-        idx = torch.tensor([self.config.tokenizer.tokenize([prompt])], dtype=torch.long, device=self.config.device)
-        # crop to context window (block size)
-        # this is why all models are fixed-context
-        # oh this is why models can stream token by token
-        while True:
-            logits = self.m(idx[:, -self.config.hyperparams.block_size:], eval_offset=0)
-            logits = logits[:, -1, :]  # (B, C): last time step
-            probs = F.softmax(logits, dim=-1)  # (B, C)
-            idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
-            s = self.config.tokenizer.stringify_one(int(idx_next[0]))
-            if s is None:
-                break
-            idx = torch.cat((idx, idx_next), dim=1)
-            print(s, end="", flush=True)
-        print("--end--")
+        self.m.eval()
+        with torch.inference_mode():
+            # my code: i want to generate tokens forever
+            print(prompt, end="", flush=True)
+            idx = torch.tensor([self.config.tokenizer.tokenize([prompt])[:-1]], dtype=torch.long, device=self.config.device)
+            # crop to context window (block size)
+            # this is why all models are fixed-context
+            # oh this is why models can stream token by token
+            logits, caches = self.m(idx[:, -self.config.hyperparams.block_size:], None, eval_offset=0)
+            while True:
+                logits = logits[:, -1, :]  # (B, C): last time step
+                probs = F.softmax(logits, dim=-1)  # (B, C)
+                idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
+                s = self.config.tokenizer.stringify_one(int(idx_next[0]))
+                if s is None:
+                    break
+                print(s, end="", flush=True)
+                offset = caches[0][0].shape[-2]
+                if offset >= self.config.hyperparams.block_size and self.config.positions == "abs":
+                    # cut to position table size for abs positions, not really much use for it
+                    # since its a worse experimental mode
+                    break
+                logits, caches = self.m(idx_next, caches, eval_offset=offset)
+            print("--end--")

@@ -25,10 +25,11 @@ class Block(nn.Module):
         self.ln1 = nn.LayerNorm(config.hyperparams.embed_size, device=config.device)
         self.ln2 = nn.LayerNorm(config.hyperparams.embed_size, device=config.device)
 
-    def forward(self, x: Tensor, eval_offset: int) -> Tensor:
+    def forward(self, x: Tensor, cache: tuple[Tensor, Tensor] | None, eval_offset: int) -> tuple[Tensor, tuple[Tensor, Tensor]]:
         # skip connections! we add here but proj inside the layers actually
         # so we preserve the pre-activation and then add that to the projected output,
         # which helps with deep learning
-        x = x + self.sa(self.ln1(x), eval_offset)
+        a, new_cache = self.sa(self.ln1(x), cache, eval_offset)
+        x = x + a
         x = x + self.ff(self.ln2(x))
-        return x
+        return x, new_cache

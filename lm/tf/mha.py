@@ -35,14 +35,11 @@ class MultiHeadAttention(nn.Module):
         assert self.q_heads % self.kv_heads == 0
         if self.positions == "rope":
             assert self.head_size % 2 == 0
-            i = torch.arange(self.head_size // 2, device=config.device)
-            theta = THETA_BASE ** (-2 * i / self.head_size)
-            pos = torch.arange(config.hyperparams.block_size, device=config.device)
-            angles = pos[:, None] * theta[None, :]
-            self.register_buffer("angles", angles)
 
-    def forward(self, x: Tensor, eval_offset: int) -> Tensor:
+    def forward(self, x: Tensor, cache: tuple[Tensor, Tensor] | None, eval_offset: int) -> tuple[Tensor, tuple[Tensor, Tensor]]:
         batch, time, channels = x.shape
+        if cache is not None:
+            assert time == 1, "Cached decoding currently supports one new token"
         # naively this is:
         # [batch, time, channels] -> [batch, time, all_heads * channels] -> [batch, time, num_heads * head_size]
         q, k, v = self.qkv(x).split([self.q_size, self.kv_size, self.kv_size], dim=-1)
@@ -71,8 +68,13 @@ class MultiHeadAttention(nn.Module):
                 # get oscillators, we have to project them across the time axis
                 # and then also across the whole head size in order to apply 1
                 # oscillator per pair (i think)
-                cos = torch.cos(self.angles[eval_offset:eval_offset + time])[None, :, None, :]
-                sin = torch.sin(self.angles[eval_offset:eval_offset + time])[None, :, None, :]   # each (seq_len, head_dim/2)
+                i = torch.arange(self.head_size // 2, device=x.device)
+                theta = THETA_BASE ** (-2 * i / self.head_size)
+                pos = torch.arange(eval_offset, eval_offset + time, device=x.device)
+                angles = pos[:, None] * theta[None, :]
+                self.register_buffer("angles", angles)
+                cos = torch.cos(angles)[None, :, None, :]
+                sin = torch.sin(angles)[None, :, None, :]   # each (seq_len, head_dim/2)
                 # rotate pairs across the curve from their assigned oscillator
                 a_rot = a * cos - b * sin
                 b_rot = a * sin + b * cos
@@ -84,13 +86,17 @@ class MultiHeadAttention(nn.Module):
             q = rotate(q)
             k = rotate(k)
 
+        q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
+        if cache:
+            past_k, past_v = cache
+            k = torch.cat([past_k, k], dim=-2)
+            v = torch.cat([past_v, v], dim=-2)
+
         # fast sdpa
         # uses [batch, head_size, time, num_heads]
         out = F.scaled_dot_product_attention(
-            q.transpose(1, 2),
-            k.transpose(1, 2),
-            v.transpose(1, 2),
-            is_causal=True,
+            q, k, v,
+            is_causal=(cache is None),
             dropout_p=self.dropout_p if self.training else 0.0,
             enable_gqa=True
         )
@@ -100,4 +106,4 @@ class MultiHeadAttention(nn.Module):
         # then shape it into our final projected logits
         out = out.transpose(1, 2).reshape(batch, time, channels)
 
-        return self.dropout(self.proj(out))
+        return self.dropout(self.proj(out)), (k, v)

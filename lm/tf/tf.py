@@ -28,7 +28,7 @@ class Transformer(nn.Module):
             self.position_embedding_table = nn.Embedding(config.hyperparams.block_size, config.hyperparams.embed_size, device=config.device)
             self.register_buffer("position", torch.arange(config.hyperparams.block_size, device=config.device))
 
-    def forward(self, idx: Tensor, eval_offset: int) -> Tensor:
+    def forward(self, idx: Tensor, caches: list[tuple[Tensor, Tensor]] | None, eval_offset: int) -> tuple[Tensor, list[tuple[Tensor, Tensor]]]:
         batch, time = idx.shape
         # token embeddings, simple enough
         x = self.token_embedding_table(idx)  # (batch, time, embed_dim)
@@ -36,8 +36,15 @@ class Transformer(nn.Module):
             pos_emb = self.position_embedding_table(self.position[eval_offset:eval_offset + time])  # pyright: ignore[reportIndexIssue]
             x = x + pos_emb
         # pass through blocks
-        for block in self.blocks:
-            x = block(x, eval_offset)
+        new_caches = []
+        if caches:
+            for cache, block in zip(caches, self.blocks):
+                x, new_cache = block(x, cache, eval_offset)
+                new_caches.append(new_cache)
+        else:
+            for block in self.blocks:
+                x, new_cache = block(x, None, eval_offset)
+                new_caches.append(new_cache)
         # final lm_head to translate to logits/probs
         x = self.lm_head(x)
-        return x
+        return (x, new_caches)

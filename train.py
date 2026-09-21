@@ -22,17 +22,17 @@ config = Config(
         # heads = 4,
         # block_size = 64,
         # batch_size = 8,
-        n_layer = 12,
+        n_layer = 42,
         embed_size = 768,
-        kv_heads = 3,
-        q_heads = 12,
-        block_size = 512,
+        kv_heads = 12,
+        q_heads = 48,
+        block_size = 256,
         batch_size = 64,
         ffn_ratio = 8 / 3,
         dropout = 0.2,
     ),
     tokenizer = tokenizer,
-    optimizer = "muon",
+    optimizer = "adamw",
     optimizer_hyperparams={
         "muon": { "lr": 0.001 },
         "adamw": { "lr": 3e-4 }
@@ -51,6 +51,8 @@ os.makedirs(tokenizer_dir, exist_ok=True)
 
 dataset = wikitext_103_raw_v1("./wikitext/wikitext-103-raw-v1")
 print("initializing tokenizer")
+import random
+print(dataset.train[random.randint(0, len(dataset.train))])
 
 tokenizer_path = f"{tokenizer_dir}/{dataset.id}.tok.pt"
 loaded = False
@@ -69,11 +71,11 @@ if not corpuses:
     corpuses = dataset.prepare(tokenizer, config.device)
     torch.save(corpuses, corpuses_path)
 
-exp_path = "muon3"
+exp_path = "big"
 os.makedirs(exp_path + "/checkpoints", exist_ok=True)
 
 lm = LanguageModel(config)
-lm.full_train(corpuses, tokens = 50_000_000, train_tokens = 5_000_000, eval_tokens = 500_000, exp_path = exp_path)
+lm.full_train(corpuses, tokens = 500_000_000, train_tokens = 50_000_000, eval_tokens = 5_000_000, exp_path = exp_path)
 
 prompt = input("prompt:")
 lm.complete(prompt)
