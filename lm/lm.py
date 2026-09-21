@@ -45,6 +45,7 @@ class LanguageModel:
         return loss
 
     def train(self, corpus: Tensor, tokens: int, seq_len: int | None = None):
+        self.m.train()
         prog = tqdm.tqdm(total=tokens, desc="train")
         trained_toks = 0
         ema = 0
@@ -69,6 +70,7 @@ class LanguageModel:
         prog.close()
 
     def eval(self, corpus: Tensor, tokens: int, desc: str = "", seq_len: int | None = None, eval_offset: int = 0) -> float:
+        self.m.eval()
         prog = tqdm.tqdm(total=tokens, desc="test" + f"@{desc}" if desc else "")
         trained_toks = 0
         total_loss = 0
